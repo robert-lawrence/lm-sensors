@@ -797,6 +797,7 @@ function SaveConfig()
 {
 	local tmpfile
 
+	#TODO: check if needs to be changed
 	RememberDevices "$FCTEMPS" "$FCFANS"
 
 	echo
@@ -895,20 +896,149 @@ select pwms in $pwmactive "Change INTERVAL" "Just quit" "Save and quit" "Show co
 		FAN=$(echo $fanactive|cut -d' ' -f$REPLY)
 		FAN_MIN=$(echo $fanactive_min|cut -d' ' -f$REPLY)
 		FCFANS="$(echo $FCFANS | sed -e "s/${pwmsed}[^ ]* *//g") ${pwms}=$FAN"
-		echo
-		echo "Select a temperature sensor as source for ${pwms}:"
-		select tempss in $TEMPS "None (Do not affect this PWM output)"; do
-			if [ "$tempss" = "None (Do not affect this PWM output)" ]
-			then
 
-				break;
-			else
-				if [ "$FCTEMPS" = "" ]
-				then
-					FCTEMPS="${pwms}=${tempss}"
-				else
-					FCTEMPS="$(echo $FCTEMPS | sed -e "s/${pwmsed}[^ ]* *//g") ${pwms}=${tempss}"
+		temp_continue=1
+		temp_tempss=""
+		temp_mintemp=""
+		temp_maxtemp=""
+		temp_minstop=""
+		temp_minstart=""
+		temp_minpwm=""
+		temp_maxpwm=""
+		if [ $FAN_MIN -eq 0 ]
+		then
+			echo
+			echo "Enter the minimum PWM value (0-$MAX)"
+			echo -n "at which the fan STOPS spinning (press t to test) ($DEFMINSTOP): "
+			read XMSTOP
+
+			if [ "$XMSTOP" = "" ]
+			then
+				XMSTOP=$DEFMINSTOP
+			fi
+			if [ "$XMSTOP" = "t" -o "$XMSTOP" = "T" ]
+			then
+				TestMinStop $FAN
+				XMSTOP=$fanval
+			fi
+		else
+			XMSTOP=0
+		fi
+		temp_minstop="${XMSTOP}"
+
+
+		if [ $FAN_MIN -eq 0 ]
+		then
+			echo
+			echo "Enter the minimum PWM value ($XMSTOP-$MAX)"
+			echo -n "at which the fan STARTS spinning (press t to test) ($DEFMINSTART): "
+			read XMSTART
+
+			if [ "$XMSTART" = "" ]
+			then
+				XMSTART=$DEFMINSTART
+			fi
+			if [ "$XMSTART" = "t" -o "$XMSTART" = "T" ]
+			then
+				TestMinStart $XMSTOP
+				XMSTART=$fanval
+			fi
+		else
+			XMSTART=$DEFMINSTART
+		fi
+		temp_minstart="${XMSTART}"
+
+		if [ $XMSTOP -gt 0 ]
+		then
+			echo
+			echo "Enter the PWM value (0-$XMSTOP) to use when the temperature"
+			echo -n "is below the low temperature limit (0): "
+			read XMINP
+		else
+			XMINP=""
+		fi
+		if [ -n "$XMINP" ]
+		then
+			temp_minpwm="${XMINP}"
+		fi
+		echo
+		echo "Enter the PWM value ($XMSTOP-$MAX) to use when the temperature"
+		echo -n "is over the high temperature limit ($MAX): "
+		read XMAXP
+		if [ -n "$XMAXP" ]
+		then
+			temp_maxpwm="${XMAXP}"
+		fi
+
+		NONE_STR="None (Do not affect this PWM output)"
+		PROMPT_STR=""
+		echo
+		echo "Select a temperature sensor as source for ${pwms}"
+		echo "Multiple temperature sensors can be selected, in which case a"
+		echo "pwm value will be computed for each input temp and the max value applied."
+		echo "Reselecting a temperature sensor will overwrite the previous config"
+		while [ $temp_continue = 1 ]; do
+		echo
+		echo "$PROMPT_STR"
+		select tempss in $TEMPS "$NONE_STR"; do
+			if [ "$tempss" = "$NONE_STR" ]
+			then
+				# finalize
+				if [ ! "$temp_tempss" = "" ]; then
+					if [ "$FCTEMPS" = "" ]; then
+						FCTEMPS="${pwms}=${temp_tempss}"
+						MINTEMP="${pwms}=${temp_mintemp}"
+						MAXTEMP="${pwms}=${temp_maxtemp}"
+						MINSTOP="${pwms}=${temp_minstop}"
+						MINSTART="${pwms}=${temp_minstart}"
+						MINPWM="${pwms}=${temp_minpwm}"
+						MAXPWM="${pwms}=${temp_maxpwm}"
+					else
+						FCTEMPS="$(echo $FCTEMPS | sed -e "s/${pwmsed}[^ ]* *//g") ${pwms}=${temp_tempss}"
+						MINTEMP="$(echo $MINTEMP | sed -e "s/${pwmsed}[^ ]* *//g") ${pwms}=${temp_mintemp}"
+						MAXTEMP="$(echo $MAXTEMP | sed -e "s/${pwmsed}[^ ]* *//g") ${pwms}=${temp_maxtemp}"
+						MINSTOP="$(echo $MINSTOP | sed -e "s/${pwmsed}[^ ]* *//g") ${pwms}=${temp_minstop}"
+						MINSTART="$(echo $MINSTART | sed -e "s/${pwmsed}[^ ]* *//g") ${pwms}=${temp_minstart}"
+						MINPWM="$(echo $MINPWM | sed -e "s/${pwmsed}[^ ]* *//g") ${pwms}=${temp_minpwm}"
+						MAXPWM="$(echo $MAXPWM | sed -e "s/${pwmsed}[^ ]* *//g") ${pwms}=${temp_maxpwm}"
+					fi
 				fi
+				temp_continue=0
+				break;
+			fi
+
+			if [ "$tempss" = "" ]; then
+				echo "Invalid input. Please select again"
+				continue
+			fi
+
+			# if first temperature selection
+			if [ "$NONE_STR" = "None (Do not affect this PWM output)" ]
+			then
+				NONE_STR="No (Do not add any more sensor inputs)"
+				PROMPT_STR="Would you like to select additional temperature sensor inputs?"
+			fi
+
+			# check if we are re-adding a tempss, if so discard previous values
+			for i in $(seq 1 $(echo $temp_tempss | sed -e 's/+/\n/g' | wc -l))
+			do
+					old_tempss=$(echo $temp_tempss | sed -e 's/+/\n/g' | sed -n "${i}p")
+					if [ "$old_tempss" = "$tempss" ]; then
+							temp_tempss=$(echo $temp_tempss | sed -e 's/+/\n/g' | sed '${i}d' | paste -s -d'+')
+							temp_mintemp=$(echo $temp_mintemp | sed -e 's/+/\n/g' | sed '${i}d' | paste -s -d'+')
+							temp_maxtemp=$(echo $temp_maxtemp | sed -e 's/+/\n/g' | sed '${i}d' | paste -s -d'+')
+							temp_minstop=$(echo $temp_minstop | sed -e 's/+/\n/g' | sed '${i}d' | paste -s -d'+')
+							temp_minstart=$(echo $temp_minstart | sed -e 's/+/\n/g' | sed '${i}d' | paste -s -d'+')
+							temp_minpwm=$(echo $temp_minpwm | sed -e 's/+/\n/g' | sed '${i}d' | paste -s -d'+')
+							temp_maxpwm=$(echo $temp_maxpwm | sed -e 's/+/\n/g' | sed '${i}d' | paste -s -d'+')
+					fi
+			done
+
+			if [ "$temp_tempss" = "" ]
+			then
+				temp_tempss="$tempss"
+			else
+				temp_tempss="${temp_tempss}+$tempss"
 			fi
 			echo
 			echo 'Enter the low temperature (degree C)'
@@ -918,11 +1048,11 @@ select pwms in $pwmactive "Change INTERVAL" "Just quit" "Save and quit" "Show co
 			then
 				XMT=$DEFMINTEMP
 			fi
-			if [ "$MINTEMP" = "" ]
+			if [ "$temp_mintemp" = "" ]
 			then
-				MINTEMP="${pwms}=${XMT}"
+				temp_mintemp="${XMT}"
 			else
-				MINTEMP="$(echo $MINTEMP | sed -e "s/${pwmsed}[^ ]* *//g") ${pwms}=${XMT}"
+				temp_mintemp="${temp_mintemp}+${XMT}"
 			fi
 			echo
 			echo 'Enter the high temperature (degree C)'
@@ -932,99 +1062,15 @@ select pwms in $pwmactive "Change INTERVAL" "Just quit" "Save and quit" "Show co
 			then
 				XMT=$DEFMAXTEMP
 			fi
-			if [ "$MAXTEMP" = "" ]
+			if [ "$temp_maxtemp" = "" ]
 			then
-				MAXTEMP="${pwms}=${XMT}"
+				temp_maxtemp="${XMT}"
 			else
-				MAXTEMP="$(echo $MAXTEMP | sed -e "s/${pwmsed}[^ ]* *//g") ${pwms}=${XMT}"
+				temp_maxtemp="${temp_maxtemp}+${XMT}"
 			fi
-
-			if [ $FAN_MIN -eq 0 ]
-			then
-				echo
-				echo "Enter the minimum PWM value (0-$MAX)"
-				echo -n "at which the fan STOPS spinning (press t to test) ($DEFMINSTOP): "
-				read XMSTOP
-
-				if [ "$XMSTOP" = "" ]
-				then
-					XMSTOP=$DEFMINSTOP
-				fi
-				if [ "$XMSTOP" = "t" -o "$XMSTOP" = "T" ]
-				then
-					TestMinStop $FAN
-					XMSTOP=$fanval
-				fi
-			else
-				XMSTOP=0
-			fi
-			if [ "$MINSTOP" = "" ]
-			then
-				MINSTOP="${pwms}=${XMSTOP}"
-			else
-				MINSTOP="$(echo $MINSTOP | sed -e "s/${pwmsed}[^ ]* *//g") ${pwms}=${XMSTOP}"
-			fi
-
-			if [ $FAN_MIN -eq 0 ]
-			then
-				echo
-				echo "Enter the minimum PWM value ($XMSTOP-$MAX)"
-				echo -n "at which the fan STARTS spinning (press t to test) ($DEFMINSTART): "
-				read XMSTART
-
-				if [ "$XMSTART" = "" ]
-				then
-					XMSTART=$DEFMINSTART
-				fi
-				if [ "$XMSTART" = "t" -o "$XMSTART" = "T" ]
-				then
-					TestMinStart $XMSTOP
-					XMSTART=$fanval
-				fi
-			else
-				XMSTART=$DEFMINSTART
-			fi
-			if [ "$MINSTART" = "" ]
-			then
-				MINSTART="${pwms}=${XMSTART}"
-			else
-				MINSTART="$(echo $MINSTART | sed -e "s/${pwmsed}[^ ]* *//g") ${pwms}=${XMSTART}"
-			fi
-
-			if [ $XMSTOP -gt 0 ]
-			then
-				echo
-				echo "Enter the PWM value (0-$XMSTOP) to use when the temperature"
-				echo -n "is below the low temperature limit (0): "
-				read XMINP
-			else
-				XMINP=""
-			fi
-			if [ -n "$XMINP" ]
-			then
-				if [ "$MINPWM" = "" ]
-				then
-					MINPWM="${pwms}=${XMINP}"
-				else
-					MINPWM="$(echo $MINPWM | sed -e "s/${pwmsed}[^ ]* *//g") ${pwms}=${XMINP}"
-				fi
-			fi
-			echo
-			echo "Enter the PWM value ($XMSTOP-$MAX) to use when the temperature"
-			echo -n "is over the high temperature limit ($MAX): "
-			read XMAXP
-			if [ -n "$XMAXP" ]
-			then
-				if [ "$MAXPWM" = "" ]
-				then
-					MAXPWM="${pwms}=${XMAXP}"
-				else
-					MAXPWM="$(echo $MAXPWM | sed -e "s/${pwmsed}[^ ]* *//g") ${pwms}=${XMAXP}"
-				fi
-			fi
-			echo
 			break;
-		done
+		done #select
+		done #while
 		break ;;
 
 	*)
