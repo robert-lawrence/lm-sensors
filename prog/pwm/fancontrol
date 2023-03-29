@@ -602,6 +602,13 @@ function UpdateFanSpeeds
 		else
 			min_fanval=1  # set it to a non zero value, so the rest of the script still works
 		fi
+		# debug info
+		if [ "$DEBUG" != "" ]
+		then
+			echo
+			echo "pwmo=$pwmo"
+			echo "tsens=$tsens"
+		fi
 
 		for tempcount in $(seq 1 $numtemps)
 		do
@@ -642,24 +649,28 @@ function UpdateFanSpeeds
 			then
 				pwmval=$pwmvaltemp
 			fi
+			# debug info
+			if [ "$DEBUG" != "" ]
+			then
+				echo "tsen=$tsen"
+				echo " - mint=$mint"
+				echo " - mint=$maxt"
+				echo " - tlastval=$tlastval"
+				echo " - prevtemp=${prevtemp[@]}"
+				echo " - tval=$tval"
+				echo " - pwmval=$pwmvaltemp"
+			fi
 
 		done
 
 		# debug info
 		if [ "$DEBUG" != "" ]
 		then
-			echo "pwmo=$pwmo"
-			echo "tsens=$tsens"
 			echo "fan=$fan"
-			echo "mint=$mint"
-			echo "maxt=$maxt"
 			echo "minsa=$minsa"
 			echo "minso=$minso"
 			echo "minpwm=$minpwm"
 			echo "maxpwm=$maxpwm"
-			echo "tlastval=$tlastval"
-			echo "prevtemp=${prevtemp[@]}"
-			echo "tval=$tval"
 			echo "pwmpval=$pwmpval"
 			echo "fanval=$fanval"
 			echo "min_fanval=$min_fanval"
